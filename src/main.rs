@@ -208,7 +208,10 @@ fn screenshot(target: &str) -> Result<(), Box<dyn std::error::Error>> {
     let _ = child.wait();
 
     let screen = parser.screen().contents_formatted();
-    std::io::Write::write_all(&mut std::io::stdout(), &screen)?;
+    let mut stdout = std::io::stdout();
+    std::io::Write::write_all(&mut stdout, &screen)?;
+    // Reset terminal state that the captured program may have changed
+    std::io::Write::write_all(&mut stdout, b"\x1b[?25h\x1b[m")?;
     println!();
 
     Ok(())
