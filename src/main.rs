@@ -10,7 +10,10 @@ use tokio::process::Command;
 #[command(name = "attach", about = "Manage attachable terminals")]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
+
+    /// Target URL (used when no subcommand is given)
+    target: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -27,6 +30,10 @@ enum Commands {
         /// Target URL (e.g. docker://name, docker://project/service, tmux://session/window/pane)
         target: String,
     },
+}
+
+fn is_target_url(s: &str) -> bool {
+    s.starts_with("docker://") || s.starts_with("tmux://")
 }
 
 #[derive(serde::Deserialize)]
@@ -221,7 +228,13 @@ fn screenshot(target: &str) -> Result<(), Box<dyn std::error::Error>> {
 async fn main() {
     let cli = Cli::parse();
 
-    match cli.command {
+    let command = match (cli.command, cli.target) {
+        (Some(cmd), _) => cmd,
+        (None, Some(target)) if is_target_url(&target) => Commands::Attach { target },
+        (None, _) => Commands::Ls,
+    };
+
+    match command {
         Commands::Ls => {
             let (docker_targets, tmux_targets) =
                 tokio::join!(list_docker_targets(), list_tmux_targets());
