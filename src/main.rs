@@ -174,16 +174,42 @@ fn screenshot(target: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut reader = pair.master.try_clone_reader()?;
 
-    std::thread::sleep(Duration::from_secs(1));
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let mut parser = vt100::Parser::new(rows, cols, 0);
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match rx.recv_timeout(remaining) {
+            Ok(data) => parser.process(&data),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
 
     let _ = child.kill();
     let _ = child.wait();
-    drop(pair.master);
 
-    let mut output = String::new();
-    reader.read_to_string(&mut output)?;
-
-    print!("{}", output);
+    let screen = parser.screen().contents_formatted();
+    std::io::Write::write_all(&mut std::io::stdout(), &screen)?;
+    println!();
 
     Ok(())
 }

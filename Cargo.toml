@@ -10,3 +10,4 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 terminal_size = "0.4.3"
 tokio = { version = "1.50.0", features = ["full"] }
+vt100 = "0.16.2"
