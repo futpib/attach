@@ -1,6 +1,9 @@
+use std::io::Read as _;
 use std::process::Stdio;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tokio::process::Command;
 
 #[derive(Parser)]
@@ -16,6 +19,11 @@ enum Commands {
     Ls,
     /// Attach to a target
     Attach {
+        /// Target URL (e.g. docker://name, docker://project/service, tmux://session/window/pane)
+        target: String,
+    },
+    /// Print one frame of the target's terminal output
+    Screenshot {
         /// Target URL (e.g. docker://name, docker://project/service, tmux://session/window/pane)
         target: String,
     },
@@ -114,40 +122,70 @@ fn resolve_docker_container(path: &str) -> Result<String, String> {
     }
 }
 
-fn attach_docker(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use std::os::unix::process::CommandExt;
-
-    let container = resolve_docker_container(path)?;
-    let err = std::process::Command::new("docker")
-        .args(["attach", &container])
-        .exec();
-    Err(err.into())
-}
-
-fn attach_tmux(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use std::os::unix::process::CommandExt;
-
-    let parts: Vec<&str> = path.splitn(3, '/').collect();
-    let (session, window, pane) = match parts.len() {
-        3 => (parts[0], parts[1], parts[2]),
-        _ => return Err(format!("invalid tmux target: {}, expected session/window/pane", path).into()),
-    };
-
-    let target = format!("{}:{}.{}", session, window, pane);
-    let err = std::process::Command::new("tmux")
-        .args(["attach-session", "-t", &target])
-        .exec();
-    Err(err.into())
-}
-
-fn attach(target: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn build_target_command(target: &str) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
     if let Some(path) = target.strip_prefix("docker://") {
-        attach_docker(path)
+        let container = resolve_docker_container(path)?;
+        Ok(("docker".to_string(), vec!["attach".to_string(), container]))
     } else if let Some(path) = target.strip_prefix("tmux://") {
-        attach_tmux(path)
+        let parts: Vec<&str> = path.splitn(3, '/').collect();
+        let (session, window, pane) = match parts.len() {
+            3 => (parts[0], parts[1], parts[2]),
+            _ => return Err(format!("invalid tmux target: {}, expected session/window/pane", path).into()),
+        };
+        let tmux_target = format!("{}:{}.{}", session, window, pane);
+        Ok(("tmux".to_string(), vec!["attach-session".to_string(), "-t".to_string(), tmux_target]))
     } else {
         Err(format!("unknown target scheme: {}", target).into())
     }
+}
+
+fn attach(target: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::process::CommandExt;
+
+    let (program, args) = build_target_command(target)?;
+    let err = std::process::Command::new(&program)
+        .args(&args)
+        .exec();
+    Err(err.into())
+}
+
+fn screenshot(target: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let (program, args) = build_target_command(target)?;
+
+    let (cols, rows) = terminal_size::terminal_size()
+        .map(|(w, h)| (w.0, h.0))
+        .unwrap_or((80, 24));
+
+    let pty_system = native_pty_system();
+    let pair = pty_system.openpty(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    })?;
+
+    let mut cmd = CommandBuilder::new(&program);
+    for arg in &args {
+        cmd.arg(arg);
+    }
+
+    let mut child = pair.slave.spawn_command(cmd)?;
+    drop(pair.slave);
+
+    let mut reader = pair.master.try_clone_reader()?;
+
+    std::thread::sleep(Duration::from_secs(1));
+
+    let _ = child.kill();
+    let _ = child.wait();
+    drop(pair.master);
+
+    let mut output = String::new();
+    reader.read_to_string(&mut output)?;
+
+    print!("{}", output);
+
+    Ok(())
 }
 
 #[tokio::main]
@@ -165,6 +203,12 @@ async fn main() {
         }
         Commands::Attach { target } => {
             if let Err(e) = attach(&target) {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Screenshot { target } => {
+            if let Err(e) = screenshot(&target) {
                 eprintln!("error: {}", e);
                 std::process::exit(1);
             }
