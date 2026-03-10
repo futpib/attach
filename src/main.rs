@@ -34,6 +34,7 @@ enum Commands {
 
 pub struct Target {
     pub url: String,
+    pub aliases: Vec<String>,
 }
 
 fn parse_target_url(target: &str) -> Result<(&str, &str), Box<dyn std::error::Error>> {

@@ -74,7 +74,14 @@ impl Backend for DockerBackend {
                 _ => format!("docker://{}", container.names.split(',').next().unwrap_or(&container.id)),
             };
 
-            targets.push(Target { url });
+            let mut aliases = vec![format!("docker://{}", container.id)];
+            let name = container.names.split(',').next().unwrap_or(&container.id);
+            let name_alias = format!("docker://{}", name);
+            if name_alias != url {
+                aliases.push(name_alias);
+            }
+
+            targets.push(Target { url, aliases });
         }
 
         targets
