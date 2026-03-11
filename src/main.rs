@@ -19,7 +19,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// List all attachable targets
-    Ls,
+    Ps {
+        /// Only show URLs
+        #[arg(short)]
+        q: bool,
+    },
     /// Attach to a target
     Attach {
         /// Target URL (e.g. docker://name, docker://project/service, tmux://session/window/pane)
@@ -38,6 +42,9 @@ enum Commands {
 pub struct Target {
     pub url: String,
     pub aliases: Vec<String>,
+    pub id: String,
+    pub command: String,
+    pub created: String,
 }
 
 fn parse_target_url(target: &str) -> Result<(&str, &str), Box<dyn std::error::Error>> {
@@ -157,19 +164,41 @@ async fn main() {
     let command = match (cli.command, cli.target) {
         (Some(cmd), _) => cmd,
         (None, Some(target)) if backends::is_target_url(&target) => Commands::Attach { target },
-        (None, _) => Commands::Ls,
+        (None, _) => Commands::Ps { q: false },
     };
 
     match command {
-        Commands::Ls => {
+        Commands::Ps { q } => {
             let backends = backends::all_backends();
             let mut futures = Vec::new();
             for backend in &backends {
                 futures.push(backend.list_targets());
             }
             let results = futures::future::join_all(futures).await;
-            for target in results.into_iter().flatten() {
-                println!("{}", target.url);
+            let mut targets = Vec::new();
+            for result in results {
+                match result {
+                    Ok(t) => targets.extend(t),
+                    Err(e) => {
+                        if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+                            if io_err.kind() == std::io::ErrorKind::NotFound {
+                                continue;
+                            }
+                        }
+                        eprintln!("warning: {}", e);
+                    }
+                }
+            }
+
+            if q {
+                for target in &targets {
+                    println!("{}", target.url);
+                }
+            } else {
+                println!("{:<24} {:<20} {:<20} {}", "ID", "COMMAND", "CREATED", "NAME");
+                for target in &targets {
+                    println!("{:<24} {:<20} {:<20} {}", target.id, target.command, target.created, target.url);
+                }
             }
         }
         Commands::Attach { target } => {

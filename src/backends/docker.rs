@@ -17,6 +17,10 @@ struct DockerContainer {
     names: String,
     #[serde(rename = "Labels")]
     labels: String,
+    #[serde(rename = "Command")]
+    command: String,
+    #[serde(rename = "CreatedAt")]
+    created_at: String,
 }
 
 fn resolve_container(path: &str) -> Result<String, String> {
@@ -37,19 +41,19 @@ impl Backend for DockerBackend {
         "docker"
     }
 
-    fn list_targets(&self) -> Pin<Box<dyn Future<Output = Vec<Target>> + Send + '_>> {
+    fn list_targets(&self) -> Pin<Box<dyn Future<Output = Result<Vec<Target>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
         Box::pin(async {
         let output = Command::new("docker")
             .args(["ps", "--format", "{{json .}}"])
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .output()
-            .await;
+            .await?;
 
-        let output = match output {
-            Ok(o) if o.status.success() => o,
-            _ => return Vec::new(),
-        };
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("docker ps failed: {}", stderr.trim()).into());
+        }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut targets = Vec::new();
@@ -81,10 +85,27 @@ impl Backend for DockerBackend {
                 aliases.push(name_alias);
             }
 
-            targets.push(Target { url, aliases });
+            let created = chrono::DateTime::parse_from_str(
+                    &container.created_at,
+                    "%Y-%m-%d %H:%M:%S %z %Z",
+                )
+                .or_else(|_| chrono::DateTime::parse_from_str(
+                    &container.created_at,
+                    "%Y-%m-%d %H:%M:%S %z",
+                ))
+                .map(|dt| chrono_humanize::HumanTime::from(dt).to_string())
+                .unwrap_or(container.created_at.clone());
+
+            targets.push(Target {
+                id: format!("docker://{}", container.id),
+                command: container.command.clone(),
+                created,
+                url,
+                aliases,
+            });
         }
 
-        targets
+        Ok(targets)
         })
     }
 

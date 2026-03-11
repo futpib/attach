@@ -127,36 +127,50 @@ impl Backend for TmuxBackend {
         "tmux"
     }
 
-    fn list_targets(&self) -> Pin<Box<dyn Future<Output = Vec<Target>> + Send + '_>> {
+    fn list_targets(&self) -> Pin<Box<dyn Future<Output = Result<Vec<Target>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
         Box::pin(async {
             let output = Command::new("tmux")
                 .args([
                     "list-panes", "-a", "-F",
-                    "#{pane_id}\t#{session_name}/#{window_index}/#{pane_index}",
+                    "#{pane_id}\t#{pane_current_command}\t#{pane_created}\t#{session_name}/#{window_index}/#{pane_index}",
                 ])
                 .stdout(Stdio::piped())
-                .stderr(Stdio::null())
+                .stderr(Stdio::piped())
                 .output()
-                .await;
+                .await?;
 
-            let output = match output {
-                Ok(o) if o.status.success() => o,
-                _ => return Vec::new(),
-            };
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("tmux list-panes failed: {}", stderr.trim()).into());
+            }
 
             let stdout = String::from_utf8_lossy(&output.stdout);
 
-            stdout
+            let result = stdout
                 .lines()
                 .filter(|line| !line.is_empty())
                 .filter_map(|line| {
-                    let (pane_id, friendly) = line.split_once('\t')?;
+                    let mut parts = line.splitn(4, '\t');
+                    let pane_id = parts.next()?;
+                    let command = parts.next()?;
+                    let created_ts = parts.next()?;
+                    let friendly = parts.next()?;
+                    let created = chrono::DateTime::from_timestamp(created_ts.parse().ok()?, 0)
+                        .map(|dt| {
+                            let ht = chrono_humanize::HumanTime::from(dt);
+                            ht.to_string()
+                        })
+                        .unwrap_or_default();
                     Some(Target {
                         url: format!("tmux://{}", friendly),
                         aliases: vec![format!("tmux://{}", pane_id)],
+                        id: format!("tmux://{}", pane_id),
+                        command: command.to_string(),
+                        created,
                     })
                 })
-                .collect()
+                .collect();
+            Ok(result)
         })
     }
 

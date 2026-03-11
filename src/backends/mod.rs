@@ -8,7 +8,7 @@ use crate::Target;
 
 pub trait Backend: Send {
     fn scheme(&self) -> &'static str;
-    fn list_targets(&self) -> Pin<Box<dyn Future<Output = Vec<Target>> + Send + '_>>;
+    fn list_targets(&self) -> Pin<Box<dyn Future<Output = Result<Vec<Target>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>>;
     fn build_command(&self, path: &str) -> Result<(String, Vec<String>), Box<dyn std::error::Error>>;
 
     fn attach(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
