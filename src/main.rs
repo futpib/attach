@@ -44,26 +44,19 @@ fn parse_target_url(target: &str) -> Result<(&str, &str), Box<dyn std::error::Er
     Ok((scheme, path))
 }
 
-fn build_target_command(target: &str) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
+fn backend_for_target(target: &str) -> Result<(Box<dyn backends::Backend>, &str), Box<dyn std::error::Error>> {
     let (scheme, path) = parse_target_url(target)?;
     let backend = backends::backend_for_scheme(scheme)
         .ok_or_else(|| format!("unknown target scheme: {}", scheme))?;
-    backend.build_command(path)
+    Ok((backend, path))
 }
 
 fn attach(target: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use std::os::unix::process::CommandExt;
-
-    let (program, args) = build_target_command(target)?;
-    let err = std::process::Command::new(&program)
-        .args(&args)
-        .exec();
-    Err(err.into())
+    let (backend, path) = backend_for_target(target)?;
+    backend.attach(path)
 }
 
-fn screenshot(target: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let (program, args) = build_target_command(target)?;
-
+pub fn pty_screenshot(program: &str, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let (cols, rows) = terminal_size::terminal_size()
         .map(|(w, h)| (w.0, h.0))
         .unwrap_or((80, 24));
@@ -76,8 +69,8 @@ fn screenshot(target: &str) -> Result<(), Box<dyn std::error::Error>> {
         pixel_height: 0,
     })?;
 
-    let mut cmd = CommandBuilder::new(&program);
-    for arg in &args {
+    let mut cmd = CommandBuilder::new(program);
+    for arg in args {
         cmd.arg(arg);
     }
 
@@ -122,11 +115,15 @@ fn screenshot(target: &str) -> Result<(), Box<dyn std::error::Error>> {
     let screen = parser.screen().contents_formatted();
     let mut stdout = std::io::stdout();
     std::io::Write::write_all(&mut stdout, &screen)?;
-    // Reset terminal state that the captured program may have changed
     std::io::Write::write_all(&mut stdout, b"\x1b[?25h\x1b[m")?;
     println!();
 
     Ok(())
+}
+
+fn screenshot(target: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let (backend, path) = backend_for_target(target)?;
+    backend.screenshot(path)
 }
 
 #[tokio::main]

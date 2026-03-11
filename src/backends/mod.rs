@@ -10,6 +10,21 @@ pub trait Backend: Send {
     fn scheme(&self) -> &'static str;
     fn list_targets(&self) -> Pin<Box<dyn Future<Output = Vec<Target>> + Send + '_>>;
     fn build_command(&self, path: &str) -> Result<(String, Vec<String>), Box<dyn std::error::Error>>;
+
+    fn attach(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        use std::os::unix::process::CommandExt;
+
+        let (program, args) = self.build_command(path)?;
+        let err = std::process::Command::new(&program)
+            .args(&args)
+            .exec();
+        Err(err.into())
+    }
+
+    fn screenshot(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let (program, args) = self.build_command(path)?;
+        crate::pty_screenshot(&program, &args)
+    }
 }
 
 pub fn is_target_url(s: &str) -> bool {
