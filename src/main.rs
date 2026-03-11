@@ -127,10 +127,19 @@ pub fn pty_screenshot(program: &str, args: &[String], size: Option<&str>) -> Res
     let _ = child.kill();
     let _ = child.wait();
 
-    let screen = parser.screen().contents_formatted();
+    let screen = parser.screen();
     let mut stdout = std::io::stdout();
-    std::io::Write::write_all(&mut stdout, &screen)?;
-    std::io::Write::write_all(&mut stdout, b"\x1b[?25h\x1b[m")?;
+    for (i, row) in screen.rows_formatted(0, cols).enumerate() {
+        if i >= rows as usize {
+            break;
+        }
+        std::io::Write::write_all(&mut stdout, &row)?;
+        std::io::Write::write_all(&mut stdout, b"\x1b[m")?;
+        if i < (rows as usize).saturating_sub(1) {
+            std::io::Write::write_all(&mut stdout, b"\r\n")?;
+        }
+    }
+    std::io::Write::write_all(&mut stdout, b"\x1b[?25h")?;
     println!();
 
     Ok(())
