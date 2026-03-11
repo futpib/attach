@@ -9,17 +9,11 @@ use crate::Target;
 
 pub struct DockerBackend;
 
-#[derive(serde::Deserialize)]
 struct DockerContainer {
-    #[serde(rename = "ID")]
     id: String,
-    #[serde(rename = "Names")]
     names: String,
-    #[serde(rename = "Labels")]
     labels: String,
-    #[serde(rename = "Command")]
     command: String,
-    #[serde(rename = "CreatedAt")]
     created_at: String,
 }
 
@@ -43,8 +37,15 @@ impl Backend for DockerBackend {
 
     fn list_targets(&self) -> Pin<Box<dyn Future<Output = Result<Vec<Target>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
         Box::pin(async {
+        let format_str = [
+            "{{.ID}}",
+            "{{.Names}}",
+            "{{.Labels}}",
+            "{{.Command}}",
+            "{{.CreatedAt}}",
+        ].join(";;");
         let output = Command::new("docker")
-            .args(["ps", "--format", "{{json .}}"])
+            .args(["ps", "--format", &format_str])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -59,9 +60,18 @@ impl Backend for DockerBackend {
         let mut targets = Vec::new();
 
         for line in stdout.lines() {
-            let container: DockerContainer = match serde_json::from_str(line) {
-                Ok(c) => c,
-                Err(_) => continue,
+            let mut parts = line.splitn(5, ";;");
+            let container = match (parts.next(), parts.next(), parts.next(), parts.next(), parts.next()) {
+                (Some(id), Some(names), Some(labels), Some(command), Some(created_at)) => {
+                    DockerContainer {
+                        id: id.to_string(),
+                        names: names.to_string(),
+                        labels: labels.to_string(),
+                        command: command.to_string(),
+                        created_at: created_at.to_string(),
+                    }
+                }
+                _ => continue,
             };
 
             let labels: std::collections::HashMap<&str, &str> = container

@@ -132,7 +132,7 @@ impl Backend for TmuxBackend {
             let output = Command::new("tmux")
                 .args([
                     "list-panes", "-a", "-F",
-                    "#{pane_id}\t#{pane_current_command}\t#{pane_created}\t#{session_name}/#{window_index}/#{pane_index}",
+                    "#{pane_id};;#{pane_current_command};;#{pane_created};;#{session_name}/#{window_index}/#{pane_index}",
                 ])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -141,6 +141,12 @@ impl Backend for TmuxBackend {
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
+                if stderr.contains("no server running")
+                    || stderr.contains("error connecting")
+                    || stderr.contains("no current client")
+                {
+                    return Ok(Vec::new());
+                }
                 return Err(format!("tmux list-panes failed: {}", stderr.trim()).into());
             }
 
@@ -150,16 +156,14 @@ impl Backend for TmuxBackend {
                 .lines()
                 .filter(|line| !line.is_empty())
                 .filter_map(|line| {
-                    let mut parts = line.splitn(4, '\t');
+                    let mut parts = line.splitn(4, ";;");
                     let pane_id = parts.next()?;
                     let command = parts.next()?;
                     let created_ts = parts.next()?;
                     let friendly = parts.next()?;
-                    let created = chrono::DateTime::from_timestamp(created_ts.parse().ok()?, 0)
-                        .map(|dt| {
-                            let ht = chrono_humanize::HumanTime::from(dt);
-                            ht.to_string()
-                        })
+                    let created = created_ts.parse::<i64>().ok()
+                        .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
+                        .map(|dt| chrono_humanize::HumanTime::from(dt).to_string())
                         .unwrap_or_default();
                     Some(Target {
                         url: format!("tmux://{}", friendly),
