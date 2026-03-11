@@ -29,6 +29,9 @@ enum Commands {
     Screenshot {
         /// Target URL (e.g. docker://name, docker://project/service, tmux://session/window/pane)
         target: String,
+        /// Terminal size as COLSxROWS (e.g. 80x24). Defaults to current terminal size.
+        #[arg(long)]
+        size: Option<String>,
     },
 }
 
@@ -56,10 +59,22 @@ fn attach(target: &str) -> Result<(), Box<dyn std::error::Error>> {
     backend.attach(path)
 }
 
-pub fn pty_screenshot(program: &str, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let (cols, rows) = terminal_size::terminal_size()
-        .map(|(w, h)| (w.0, h.0))
-        .unwrap_or((80, 24));
+fn parse_size(size: Option<&str>) -> Result<(u16, u16), Box<dyn std::error::Error>> {
+    match size {
+        Some(s) => {
+            let (cols, rows) = s
+                .split_once('x')
+                .ok_or_else(|| format!("invalid size '{}', expected COLSxROWS (e.g. 80x24)", s))?;
+            Ok((cols.parse()?, rows.parse()?))
+        }
+        None => Ok(terminal_size::terminal_size()
+            .map(|(w, h)| (w.0, h.0))
+            .unwrap_or((80, 24))),
+    }
+}
+
+pub fn pty_screenshot(program: &str, args: &[String], size: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let (cols, rows) = parse_size(size)?;
 
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
@@ -121,9 +136,9 @@ pub fn pty_screenshot(program: &str, args: &[String]) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-fn screenshot(target: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn screenshot(target: &str, size: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let (backend, path) = backend_for_target(target)?;
-    backend.screenshot(path)
+    backend.screenshot(path, size)
 }
 
 #[tokio::main]
@@ -154,8 +169,8 @@ async fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::Screenshot { target } => {
-            if let Err(e) = screenshot(&target) {
+        Commands::Screenshot { target, size } => {
+            if let Err(e) = screenshot(&target, size.as_deref()) {
                 eprintln!("error: {}", e);
                 std::process::exit(1);
             }

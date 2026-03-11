@@ -21,9 +21,9 @@ pub trait Backend: Send {
         Err(err.into())
     }
 
-    fn screenshot(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fn screenshot(&self, path: &str, size: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
         let (program, args) = self.build_command(path)?;
-        crate::pty_screenshot(&program, &args)
+        crate::pty_screenshot(&program, &args, size)
     }
 }
 

@@ -191,12 +191,12 @@ impl Backend for TmuxBackend {
         }
     }
 
-    fn screenshot(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fn screenshot(&self, path: &str, size: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
         let resolved = resolve_target(path)?;
 
         if !matches!(resolved.kind, TargetKind::Pane) {
             let (program, args) = self.build_command(path)?;
-            return crate::pty_screenshot(&program, &args);
+            return crate::pty_screenshot(&program, &args, size);
         }
 
         let isolation = PaneIsolation::setup(&resolved.target)?;
@@ -208,6 +208,7 @@ impl Backend for TmuxBackend {
                 "-t".to_string(),
                 isolation.temp_session_id.clone(),
             ],
+            size,
         );
 
         isolation.teardown();
