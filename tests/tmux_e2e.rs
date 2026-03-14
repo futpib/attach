@@ -116,6 +116,15 @@ fn ps_table_shows_tmux_panes() {
         "expected tmux://%%N id in output, got:\n{}",
         output,
     );
+
+    // CREATED column (chars 44..64) should have a humanized timestamp (e.g. "now")
+    let data_line = output.lines().find(|l| l.contains("tmux://mysession/")).unwrap();
+    let created_col = &data_line[44..64];
+    assert!(
+        created_col.trim() != "",
+        "expected non-empty CREATED value, got line:\n{}",
+        data_line,
+    );
 }
 
 #[test]

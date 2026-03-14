@@ -132,7 +132,7 @@ impl Backend for TmuxBackend {
             let output = Command::new("tmux")
                 .args([
                     "list-panes", "-a", "-F",
-                    "#{pane_id};;#{pane_current_command};;#{pane_created};;#{session_name}/#{window_index}/#{pane_index}",
+                    "#{pane_id};;#{pane_current_command};;#{session_created};;#{session_name}/#{window_index}/#{pane_index}",
                 ])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
