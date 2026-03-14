@@ -4,7 +4,8 @@ use std::io::Read as _;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use dialoguer::{Select, theme::ColorfulTheme};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 #[derive(Parser)]
 #[command(name = "attach", about = "Manage attachable terminals")]
@@ -29,6 +30,8 @@ enum Commands {
         /// Target URL (e.g. docker://name, docker://project/service, tmux://session/window/pane)
         target: String,
     },
+    /// Interactively select a target to attach to
+    Interactive,
     /// Print one frame of the target's terminal output
     Screenshot {
         /// Target URL (e.g. docker://name, docker://project/service, tmux://session/window/pane)
@@ -152,6 +155,30 @@ pub fn pty_screenshot(program: &str, args: &[String], size: Option<&str>) -> Res
     Ok(())
 }
 
+async fn list_all_targets() -> Result<Vec<Target>, Box<dyn std::error::Error>> {
+    let backends = backends::all_backends();
+    let mut futures = Vec::new();
+    for backend in &backends {
+        futures.push(backend.list_targets());
+    }
+    let results = futures::future::join_all(futures).await;
+    let mut targets = Vec::new();
+    for result in results {
+        match result {
+            Ok(t) => targets.extend(t),
+            Err(e) => {
+                if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+                    if io_err.kind() == std::io::ErrorKind::NotFound {
+                        continue;
+                    }
+                }
+                eprintln!("warning: {}", e);
+            }
+        }
+    }
+    Ok(targets)
+}
+
 fn screenshot(target: &str, size: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let (backend, path) = backend_for_target(target)?;
     backend.screenshot(path, size)
@@ -169,26 +196,13 @@ async fn main() {
 
     match command {
         Commands::Ps { q } => {
-            let backends = backends::all_backends();
-            let mut futures = Vec::new();
-            for backend in &backends {
-                futures.push(backend.list_targets());
-            }
-            let results = futures::future::join_all(futures).await;
-            let mut targets = Vec::new();
-            for result in results {
-                match result {
-                    Ok(t) => targets.extend(t),
-                    Err(e) => {
-                        if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
-                            if io_err.kind() == std::io::ErrorKind::NotFound {
-                                continue;
-                            }
-                        }
-                        eprintln!("warning: {}", e);
-                    }
+            let targets = match list_all_targets().await {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    std::process::exit(1);
                 }
-            }
+            };
 
             if q {
                 for target in &targets {
@@ -198,6 +212,45 @@ async fn main() {
                 println!("{:<24} {:<20} {:<20} {}", "ID", "COMMAND", "CREATED", "NAME");
                 for target in &targets {
                     println!("{:<24} {:<20} {:<20} {}", target.id, target.command, target.created, target.url);
+                }
+            }
+        }
+        Commands::Interactive => {
+            let targets = match list_all_targets().await {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            if targets.is_empty() {
+                eprintln!("No attachable targets found.");
+                std::process::exit(1);
+            }
+
+            let items: Vec<String> = targets
+                .iter()
+                .map(|t| format!("{} ({})", t.url, t.command))
+                .collect();
+
+            let selection = Select::with_theme(&ColorfulTheme::default())
+                .with_prompt("Select a target to attach to")
+                .items(&items)
+                .default(0)
+                .interact_opt();
+
+            match selection {
+                Ok(Some(index)) => {
+                    if let Err(e) = attach(&targets[index].url) {
+                        eprintln!("error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    std::process::exit(1);
                 }
             }
         }

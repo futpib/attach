@@ -7,6 +7,7 @@ edition = "2024"
 chrono = "0.4.44"
 chrono-humanize = "0.2.3"
 clap = { version = "4.5.60", features = ["derive"] }
+dialoguer = "0.12.0"
 futures = "0.3.32"
 portable-pty = "0.9.0"
 terminal_size = "0.4.3"
