@@ -1,4 +1,5 @@
 pub mod docker;
+pub mod keys;
 pub mod tmux;
 
 use std::future::Future;
@@ -24,6 +25,14 @@ pub trait Backend: Send {
     fn screenshot(&self, path: &str, size: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
         let (program, args) = self.build_command(path)?;
         crate::pty_screenshot(&program, &args, size)
+    }
+
+    fn send_keys(&self, _path: &str, _keys: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        Err(format!("{}:// backend does not support send-keys", self.scheme()).into())
+    }
+
+    fn send_text(&self, _path: &str, _text: &str) -> Result<(), Box<dyn std::error::Error>> {
+        Err(format!("{}:// backend does not support send-text", self.scheme()).into())
     }
 }
 

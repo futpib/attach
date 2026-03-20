@@ -40,6 +40,20 @@ enum Commands {
         #[arg(long)]
         size: Option<String>,
     },
+    /// Send key sequences to a target (like xdotool key)
+    Key {
+        /// Target URL (e.g. tmux://session/window/pane)
+        target: String,
+        /// Key names to send (e.g. Return, ctrl+c, alt+F2, space)
+        keys: Vec<String>,
+    },
+    /// Type text into a target (like xdotool type)
+    Type {
+        /// Target URL (e.g. tmux://session/window/pane)
+        target: String,
+        /// Text to type
+        text: Vec<String>,
+    },
 }
 
 pub struct Target {
@@ -184,6 +198,16 @@ fn screenshot(target: &str, size: Option<&str>) -> Result<(), Box<dyn std::error
     backend.screenshot(path, size)
 }
 
+fn send_keys(target: &str, keys: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let (backend, path) = backend_for_target(target)?;
+    backend.send_keys(path, keys)
+}
+
+fn send_text(target: &str, text: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let (backend, path) = backend_for_target(target)?;
+    backend.send_text(path, text)
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -262,6 +286,19 @@ async fn main() {
         }
         Commands::Screenshot { target, size } => {
             if let Err(e) = screenshot(&target, size.as_deref()) {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Key { target, keys } => {
+            if let Err(e) = send_keys(&target, &keys) {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Type { target, text } => {
+            let joined = text.join(" ");
+            if let Err(e) = send_text(&target, &joined) {
                 eprintln!("error: {}", e);
                 std::process::exit(1);
             }

@@ -122,6 +122,51 @@ impl PaneIsolation {
     }
 }
 
+fn translate_key(key: &str) -> String {
+    // Handle modifier+key combos: ctrl+x → C-x, alt+x → M-x, shift+x → S-x
+    // Support both xdotool style (ctrl+x) and chained modifiers (ctrl+shift+x)
+    if let Some(pos) = key.rfind('+') {
+        let (modifiers_str, base) = key.split_at(pos);
+        let base = &base[1..]; // skip the '+'
+        let translated_base = translate_key(base);
+
+        let mut prefix = String::new();
+        for modifier in modifiers_str.split('+') {
+            match modifier.to_lowercase().as_str() {
+                "ctrl" | "control" => prefix.push_str("C-"),
+                "alt" | "meta" => prefix.push_str("M-"),
+                "shift" => prefix.push_str("S-"),
+                "super" => prefix.push_str("S-"), // tmux has no super, map to shift
+                _ => {
+                    // Not a known modifier, return as-is
+                    return key.to_string();
+                }
+            }
+        }
+        return format!("{}{}", prefix, translated_base);
+    }
+
+    // Translate xdotool key names to tmux key names
+    match key {
+        "Return" | "KP_Enter" => "Enter".to_string(),
+        "BackSpace" => "BSpace".to_string(),
+        "Delete" | "KP_Delete" => "DC".to_string(),
+        "Page_Up" | "Prior" => "PPage".to_string(),
+        "Page_Down" | "Next" => "NPage".to_string(),
+        "space" => "Space".to_string(),
+        "Tab" | "ISO_Left_Tab" => "Tab".to_string(),
+        "Escape" => "Escape".to_string(),
+        "Home" => "Home".to_string(),
+        "End" => "End".to_string(),
+        "Left" => "Left".to_string(),
+        "Right" => "Right".to_string(),
+        "Up" => "Up".to_string(),
+        "Down" => "Down".to_string(),
+        "Insert" => "IC".to_string(),
+        other => other.to_string(),
+    }
+}
+
 impl Backend for TmuxBackend {
     fn scheme(&self) -> &'static str {
         "tmux"
@@ -207,6 +252,23 @@ impl Backend for TmuxBackend {
             Ok(s) => Err(format!("tmux attach exited with {}", s).into()),
             Err(e) => Err(e.into()),
         }
+    }
+
+    fn send_keys(&self, path: &str, keys: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        let resolved = resolve_target(path)?;
+        let translated: Vec<String> = keys.iter().map(|k| translate_key(k)).collect();
+        let mut args: Vec<&str> = vec!["send-keys", "-t", &resolved.target];
+        for key in &translated {
+            args.push(key);
+        }
+        tmux_run(&args)?;
+        Ok(())
+    }
+
+    fn send_text(&self, path: &str, text: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let resolved = resolve_target(path)?;
+        tmux_run(&["send-keys", "-t", &resolved.target, "-l", text])?;
+        Ok(())
     }
 
     fn screenshot(&self, path: &str, size: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
