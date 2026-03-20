@@ -82,6 +82,7 @@ dependencies = [
  "clap",
  "dialoguer",
  "futures",
+ "libc",
  "portable-pty",
  "tempfile",
  "terminal_size",
