@@ -13,7 +13,9 @@ impl TmuxServer {
 
     fn tmux(&self, args: &[&str]) -> std::process::Output {
         Command::new("tmux")
+            .env_clear()
             .env("TMUX_TMPDIR", self.tmpdir.path())
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
             .arg("-f")
             .arg("/dev/null")
             .args(args)
@@ -68,7 +70,9 @@ impl TmuxServer {
 impl Drop for TmuxServer {
     fn drop(&mut self) {
         let _ = Command::new("tmux")
+            .env_clear()
             .env("TMUX_TMPDIR", self.tmpdir.path())
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
             .args(["kill-server"])
             .output();
     }
@@ -117,9 +121,9 @@ fn ps_table_shows_tmux_panes() {
         output,
     );
 
-    // CREATED column (chars 44..64) should have a humanized timestamp (e.g. "now")
+    // CREATED column (chars 62..82) should have a humanized timestamp (e.g. "now")
     let data_line = output.lines().find(|l| l.contains("tmux://mysession/")).unwrap();
-    let created_col = &data_line[44..64];
+    let created_col = &data_line[62..82];
     assert!(
         created_col.trim() != "",
         "expected non-empty CREATED value, got line:\n{}",
