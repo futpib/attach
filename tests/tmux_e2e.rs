@@ -102,12 +102,12 @@ fn ps_table_shows_tmux_panes() {
     let output = server.attach_cmd_ok(&["ps"]);
 
     // Should have header
-    assert!(output.contains("ID"), "missing ID header in:\n{}", output);
+    assert!(output.contains("URL"), "missing URL header in:\n{}", output);
     assert!(output.contains("COMMAND"), "missing COMMAND header in:\n{}", output);
     assert!(output.contains("CREATED"), "missing CREATED header in:\n{}", output);
-    assert!(output.contains("NAME"), "missing NAME header in:\n{}", output);
+    assert!(output.contains("ID"), "missing ID header in:\n{}", output);
 
-    // Should have a tmux pane row
+    // Should have a tmux pane row with the human-readable URL first
     assert!(
         output.contains("tmux://mysession/"),
         "expected tmux://mysession/ in output, got:\n{}",
@@ -121,9 +121,18 @@ fn ps_table_shows_tmux_panes() {
         output,
     );
 
-    // CREATED column (chars 62..82) should have a humanized timestamp (e.g. "now")
+    // Human-readable URL should appear before pane ID in the data row
     let data_line = output.lines().find(|l| l.contains("tmux://mysession/")).unwrap();
-    let created_col = &data_line[62..82];
+    let url_pos = data_line.find("tmux://mysession/").unwrap();
+    let id_pos = data_line.find("tmux://%").unwrap();
+    assert!(
+        url_pos < id_pos,
+        "expected human-readable URL before pane ID, got line:\n{}",
+        data_line,
+    );
+
+    // CREATED column (URL=44, space=1, COMMAND=20, space=1 => starts at 66)
+    let created_col = &data_line[66..86];
     assert!(
         created_col.trim() != "",
         "expected non-empty CREATED value, got line:\n{}",
@@ -366,6 +375,56 @@ fn type_invalid_target_fails() {
     assert!(
         !output.status.success(),
         "expected failure for invalid target",
+    );
+}
+
+#[test]
+fn ps_url_is_reusable_as_target() {
+    let server = TmuxServer::new();
+    server.tmux_ok(&["new-session", "-d", "-s", "reusetest", "-x", "80", "-y", "24"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // The URL from `ps -q` should work directly as a target for key/type
+    let urls = server.attach_cmd_ok(&["ps", "-q"]);
+    let url = urls
+        .lines()
+        .find(|l| l.starts_with("tmux://reusetest"))
+        .expect("expected tmux://reusetest URL in ps -q output")
+        .trim()
+        .to_string();
+
+    server.attach_cmd_ok(&["type", &url, "echo reuse_url_works"]);
+    server.attach_cmd_ok(&["key", &url, "Return"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let captured = server.tmux_ok(&["capture-pane", "-t", "reusetest", "-p"]);
+    assert!(
+        captured.contains("reuse_url_works"),
+        "expected 'reuse_url_works' in pane output, got:\n{}",
+        captured,
+    );
+}
+
+#[test]
+fn session_name_url_is_accepted() {
+    let server = TmuxServer::new();
+    server.tmux_ok(&["new-session", "-d", "-s", "nameonly", "-x", "80", "-y", "24"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // tmux://session-name (no window/pane) targets the active pane of the session
+    server.attach_cmd_ok(&["type", "tmux://nameonly", "echo session_name_url"]);
+    server.attach_cmd_ok(&["key", "tmux://nameonly", "Return"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let captured = server.tmux_ok(&["capture-pane", "-t", "nameonly", "-p"]);
+    assert!(
+        captured.contains("session_name_url"),
+        "expected 'session_name_url' in pane output, got:\n{}",
+        captured,
     );
 }
 

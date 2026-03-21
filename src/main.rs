@@ -233,9 +233,9 @@ async fn main() {
                     println!("{}", target.url);
                 }
             } else {
-                println!("{:<24} {:<20} {:<20} {}", "ID", "COMMAND", "CREATED", "NAME");
+                println!("{:<44} {:<20} {:<20} {}", "URL", "COMMAND", "CREATED", "ID");
                 for target in &targets {
-                    println!("{:<24} {:<20} {:<20} {}", target.id, target.command, target.created, target.url);
+                    println!("{:<44} {:<20} {:<20} {}", target.url, target.command, target.created, target.id);
                 }
             }
         }
