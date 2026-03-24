@@ -450,6 +450,26 @@ fn screenshot_session() {
 }
 
 #[test]
+fn screenshot_window() {
+    let server = TmuxServer::new();
+    server.tmux_ok(&["new-session", "-d", "-s", "scrwin", "-x", "80", "-y", "24"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    server.tmux_ok(&["send-keys", "-t", "scrwin", "-l", "echo screenshot_window_marker"]);
+    server.tmux_ok(&["send-keys", "-t", "scrwin", "Enter"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let output = server.attach_cmd_ok(&["screenshot", "--size", "80x24", "tmux://scrwin/0"]);
+    assert!(
+        output.contains("screenshot_window_marker"),
+        "expected 'screenshot_window_marker' in screenshot output, got:\n{}",
+        output,
+    );
+}
+
+#[test]
 fn screenshot_sole_pane_in_window() {
     let server = TmuxServer::new();
     server.tmux_ok(&["new-session", "-d", "-s", "solepane", "-x", "80", "-y", "24"]);
