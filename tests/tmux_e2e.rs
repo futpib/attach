@@ -45,6 +45,7 @@ impl TmuxServer {
             .args(args)
             .env_clear()
             .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("TERM", std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string()))
             .env("TMUX_TMPDIR", self.tmpdir.path())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -425,6 +426,67 @@ fn session_name_url_is_accepted() {
         captured.contains("session_name_url"),
         "expected 'session_name_url' in pane output, got:\n{}",
         captured,
+    );
+}
+
+#[test]
+fn screenshot_session() {
+    let server = TmuxServer::new();
+    server.tmux_ok(&["new-session", "-d", "-s", "screensession", "-x", "80", "-y", "24"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    server.tmux_ok(&["send-keys", "-t", "screensession", "-l", "echo screenshot_session_marker"]);
+    server.tmux_ok(&["send-keys", "-t", "screensession", "Enter"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let output = server.attach_cmd_ok(&["screenshot", "--size", "80x24", "tmux://screensession"]);
+    assert!(
+        output.contains("screenshot_session_marker"),
+        "expected 'screenshot_session_marker' in screenshot output, got:\n{}",
+        output,
+    );
+}
+
+#[test]
+fn screenshot_sole_pane_in_window() {
+    let server = TmuxServer::new();
+    server.tmux_ok(&["new-session", "-d", "-s", "solepane", "-x", "80", "-y", "24"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    server.tmux_ok(&["send-keys", "-t", "solepane", "-l", "echo sole_pane_marker"]);
+    server.tmux_ok(&["send-keys", "-t", "solepane", "Enter"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let output = server.attach_cmd_ok(&["screenshot", "--size", "80x24", "tmux://solepane/0/0"]);
+    assert!(
+        output.contains("sole_pane_marker"),
+        "expected 'sole_pane_marker' in screenshot output, got:\n{}",
+        output,
+    );
+}
+
+#[test]
+fn screenshot_pane_in_split_window() {
+    let server = TmuxServer::new();
+    server.tmux_ok(&["new-session", "-d", "-s", "splitscr", "-x", "80", "-y", "24"]);
+    server.tmux_ok(&["split-window", "-t", "splitscr", "sleep", "300"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    server.tmux_ok(&["send-keys", "-t", "splitscr:0.0", "-l", "echo pane_zero_marker"]);
+    server.tmux_ok(&["send-keys", "-t", "splitscr:0.0", "Enter"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let output = server.attach_cmd_ok(&["screenshot", "--size", "80x24", "tmux://splitscr/0/0"]);
+    assert!(
+        output.contains("pane_zero_marker"),
+        "expected 'pane_zero_marker' in screenshot output, got:\n{}",
+        output,
     );
 }
 

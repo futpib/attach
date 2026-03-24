@@ -91,11 +91,11 @@ impl PaneIsolation {
         );
 
         let temp_session = tmux_run(&[
-            "new-session", "-d", "-P", "-F", "#{session_id}\t#{pane_id}",
+            "new-session", "-d", "-P", "-F", "#{session_id};;#{pane_id}",
             "sh", "-c", placeholder_script, "--", &pane_id,
         ])?;
         let (temp_session_id, placeholder_pane_id) = temp_session
-            .split_once('\t')
+            .split_once(";;")
             .ok_or("failed to parse temp session output")?;
         let temp_session_id = temp_session_id.to_string();
         let placeholder_pane_id = placeholder_pane_id.to_string();
