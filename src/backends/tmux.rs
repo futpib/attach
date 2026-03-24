@@ -279,6 +279,24 @@ impl Backend for TmuxBackend {
             return crate::pty_screenshot(&program, &args, size);
         }
 
+        let info = tmux_run(&[
+            "display-message", "-t", &resolved.target, "-p", "#{window_panes};;#{window_id}",
+        ])?;
+        let (window_panes, window_id) = info.split_once(";;")
+            .ok_or("failed to parse window info")?;
+
+        if window_panes == "1" {
+            return crate::pty_screenshot(
+                "tmux",
+                &[
+                    "attach-session".to_string(),
+                    "-t".to_string(),
+                    window_id.to_string(),
+                ],
+                size,
+            );
+        }
+
         let isolation = PaneIsolation::setup(&resolved.target)?;
 
         let result = crate::pty_screenshot(
