@@ -107,7 +107,10 @@ impl PaneIsolation {
         Ok(PaneIsolation { pane_id, temp_session_id, placeholder_pane_id })
     }
 
-    fn teardown(&self) {
+}
+
+impl Drop for PaneIsolation {
+    fn drop(&mut self) {
         let placeholder_alive = tmux_run(&[
             "display-message", "-t", &self.placeholder_pane_id, "-p", "#{pane_id}",
         ]).is_ok();
@@ -120,6 +123,26 @@ impl PaneIsolation {
 
         let _ = tmux_run(&["kill-session", "-t", &self.temp_session_id]);
     }
+}
+
+fn attach_target(resolved: &ResolvedTarget) -> Result<(String, Option<PaneIsolation>), Box<dyn std::error::Error>> {
+    if !matches!(resolved.kind, TargetKind::Pane) {
+        return Ok((resolved.target.clone(), None));
+    }
+
+    let info = tmux_run(&[
+        "display-message", "-t", &resolved.target, "-p", "#{window_panes};;#{window_id}",
+    ])?;
+    let (panes, window_id) = info.split_once(";;")
+        .ok_or("failed to parse window info")?;
+
+    if panes == "1" {
+        return Ok((window_id.to_string(), None));
+    }
+
+    let isolation = PaneIsolation::setup(&resolved.target)?;
+    let target = isolation.temp_session_id.clone();
+    Ok((target, Some(isolation)))
 }
 
 fn translate_key(key: &str) -> String {
@@ -230,22 +253,19 @@ impl Backend for TmuxBackend {
 
     fn attach(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let resolved = resolve_target(path)?;
+        let (target, _isolation) = attach_target(&resolved)?;
 
-        if !matches!(resolved.kind, TargetKind::Pane) {
+        if _isolation.is_none() {
             use std::os::unix::process::CommandExt;
             let err = std::process::Command::new("tmux")
-                .args(["attach-session", "-t", &resolved.target])
+                .args(["attach-session", "-t", &target])
                 .exec();
             return Err(err.into());
         }
 
-        let isolation = PaneIsolation::setup(&resolved.target)?;
-
         let status = std::process::Command::new("tmux")
-            .args(["attach-session", "-t", &isolation.temp_session_id])
+            .args(["attach-session", "-t", &target])
             .status();
-
-        isolation.teardown();
 
         match status {
             Ok(s) if s.success() => Ok(()),
@@ -273,44 +293,16 @@ impl Backend for TmuxBackend {
 
     fn screenshot(&self, path: &str, size: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
         let resolved = resolve_target(path)?;
+        let (target, _isolation) = attach_target(&resolved)?;
 
-        if !matches!(resolved.kind, TargetKind::Pane) {
-            let (program, args) = self.build_command(path)?;
-            return crate::pty_screenshot(&program, &args, size);
-        }
-
-        let info = tmux_run(&[
-            "display-message", "-t", &resolved.target, "-p", "#{window_panes};;#{window_id}",
-        ])?;
-        let (window_panes, window_id) = info.split_once(";;")
-            .ok_or("failed to parse window info")?;
-
-        if window_panes == "1" {
-            return crate::pty_screenshot(
-                "tmux",
-                &[
-                    "attach-session".to_string(),
-                    "-t".to_string(),
-                    window_id.to_string(),
-                ],
-                size,
-            );
-        }
-
-        let isolation = PaneIsolation::setup(&resolved.target)?;
-
-        let result = crate::pty_screenshot(
+        crate::pty_screenshot(
             "tmux",
             &[
                 "attach-session".to_string(),
                 "-t".to_string(),
-                isolation.temp_session_id.clone(),
+                target,
             ],
             size,
-        );
-
-        isolation.teardown();
-
-        result
+        )
     }
 }

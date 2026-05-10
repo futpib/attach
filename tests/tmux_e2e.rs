@@ -511,6 +511,56 @@ fn screenshot_pane_in_split_window() {
 }
 
 #[test]
+fn screenshot_sole_pane_does_not_create_temp_session() {
+    let server = TmuxServer::new();
+    server.tmux_ok(&["new-session", "-d", "-s", "solescr", "-x", "80", "-y", "24"]);
+
+    let hook_log = server.tmpdir.path().join("session-created.log");
+    let hook_cmd = format!("run-shell 'echo created >> {}'", hook_log.display());
+    server.tmux_ok(&["set-hook", "-g", "session-created", &hook_cmd]);
+
+    server.attach_cmd_ok(&["screenshot", "--size", "80x24", "tmux://solescr/0/0"]);
+
+    let log = std::fs::read_to_string(&hook_log).unwrap_or_default();
+    assert!(
+        log.is_empty(),
+        "expected no temp session for sole-pane target, hook log was:\n{}",
+        log,
+    );
+}
+
+#[test]
+fn attach_sole_pane_does_not_create_temp_session() {
+    let server = TmuxServer::new();
+    server.tmux_ok(&["new-session", "-d", "-s", "soleattach", "-x", "80", "-y", "24"]);
+
+    let hook_log = server.tmpdir.path().join("session-created.log");
+    let hook_cmd = format!("run-shell 'echo created >> {}'", hook_log.display());
+    server.tmux_ok(&["set-hook", "-g", "session-created", &hook_cmd]);
+
+    // attach_target() runs synchronously before the inner `tmux attach-session`,
+    // so its side effects (or absence thereof) are observable as soon as attach
+    // exits — even though attach itself fails fast here because there is no TTY.
+    let _ = Command::new(TmuxServer::attach_bin())
+        .args(["tmux://soleattach/0/0"])
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("TERM", std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string()))
+        .env("TMUX_TMPDIR", server.tmpdir.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+
+    let log = std::fs::read_to_string(&hook_log).unwrap_or_default();
+    assert!(
+        log.is_empty(),
+        "expected no temp session for sole-pane target, hook log was:\n{}",
+        log,
+    );
+}
+
+#[test]
 fn key_invalid_scheme_fails() {
     let server = TmuxServer::new();
 
