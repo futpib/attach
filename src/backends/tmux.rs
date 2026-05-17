@@ -125,6 +125,25 @@ impl Drop for PaneIsolation {
     }
 }
 
+struct SessionIsolation {
+    session_id: String,
+}
+
+impl SessionIsolation {
+    fn setup(target: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let session_id = tmux_run(&[
+            "new-session", "-d", "-P", "-F", "#{session_id}", "-t", target,
+        ])?;
+        Ok(SessionIsolation { session_id })
+    }
+}
+
+impl Drop for SessionIsolation {
+    fn drop(&mut self) {
+        let _ = tmux_run(&["kill-session", "-t", &self.session_id]);
+    }
+}
+
 fn attach_target(resolved: &ResolvedTarget) -> Result<(String, Option<PaneIsolation>), Box<dyn std::error::Error>> {
     if !matches!(resolved.kind, TargetKind::Pane) {
         return Ok((resolved.target.clone(), None));
@@ -253,6 +272,22 @@ impl Backend for TmuxBackend {
 
     fn attach(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let resolved = resolve_target(path)?;
+
+        if matches!(resolved.kind, TargetKind::Session | TargetKind::Window) {
+            let isolation = SessionIsolation::setup(&resolved.target)?;
+            let target = isolation.session_id.clone();
+
+            let status = std::process::Command::new("tmux")
+                .args(["attach-session", "-t", &target])
+                .status();
+
+            return match status {
+                Ok(s) if s.success() => Ok(()),
+                Ok(s) => Err(format!("tmux attach exited with {}", s).into()),
+                Err(e) => Err(e.into()),
+            };
+        }
+
         let (target, _isolation) = attach_target(&resolved)?;
 
         if _isolation.is_none() {

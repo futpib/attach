@@ -561,6 +561,77 @@ fn attach_sole_pane_does_not_create_temp_session() {
 }
 
 #[test]
+fn attach_session_target_creates_and_cleans_up_grouped_clone() {
+    let server = TmuxServer::new();
+    server.tmux_ok(&["new-session", "-d", "-s", "grouptest", "-x", "80", "-y", "24"]);
+
+    let hook_log = server.tmpdir.path().join("session-created.log");
+    let hook_cmd = format!("run-shell 'echo created >> {}'", hook_log.display());
+    server.tmux_ok(&["set-hook", "-g", "session-created", &hook_cmd]);
+
+    let _ = Command::new(TmuxServer::attach_bin())
+        .args(["tmux://grouptest"])
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("TERM", std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string()))
+        .env("TMUX_TMPDIR", server.tmpdir.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+
+    let log = std::fs::read_to_string(&hook_log).unwrap_or_default();
+    assert!(
+        !log.is_empty(),
+        "expected a grouped session clone to be created for session target",
+    );
+
+    let sessions = server.tmux_ok(&["list-sessions", "-F", "#{session_name}"]);
+    assert_eq!(
+        sessions.lines().count(),
+        1,
+        "expected clone session to be cleaned up after attach, sessions:\n{}",
+        sessions,
+    );
+}
+
+#[test]
+fn attach_window_target_creates_and_cleans_up_grouped_clone() {
+    let server = TmuxServer::new();
+    server.tmux_ok(&["new-session", "-d", "-s", "wingroup", "-x", "80", "-y", "24"]);
+    server.tmux_ok(&["new-window", "-t", "wingroup"]);
+
+    let hook_log = server.tmpdir.path().join("session-created.log");
+    let hook_cmd = format!("run-shell 'echo created >> {}'", hook_log.display());
+    server.tmux_ok(&["set-hook", "-g", "session-created", &hook_cmd]);
+
+    let _ = Command::new(TmuxServer::attach_bin())
+        .args(["tmux://wingroup/0"])
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("TERM", std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string()))
+        .env("TMUX_TMPDIR", server.tmpdir.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+
+    let log = std::fs::read_to_string(&hook_log).unwrap_or_default();
+    assert!(
+        !log.is_empty(),
+        "expected a grouped session clone to be created for window target",
+    );
+
+    let sessions = server.tmux_ok(&["list-sessions", "-F", "#{session_name}"]);
+    assert_eq!(
+        sessions.lines().count(),
+        1,
+        "expected clone session to be cleaned up after attach, sessions:\n{}",
+        sessions,
+    );
+}
+
+#[test]
 fn key_invalid_scheme_fails() {
     let server = TmuxServer::new();
 
